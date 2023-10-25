@@ -1,65 +1,89 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from sklearn import linear_model
 
-from sklearn import datasets, linear_model
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import KFold, cross_val_score
 
-X_test_A = np.loadtxt(open("datasets/X_test_A.csv", "rb"), delimiter=",")
-X_test_B = np.loadtxt(open("datasets/X_test_B.csv", "rb"), delimiter=",")
-X_test_C = np.loadtxt(open("datasets/X_test_C.csv", "rb"), delimiter=",")
-X_train_A = np.loadtxt(open("datasets/X_train_A.csv", "rb"), delimiter=",")
-X_train_B = np.loadtxt(open("datasets/X_train_B.csv", "rb"), delimiter=",")
-X_train_C = np.loadtxt(open("datasets/X_train_C.csv", "rb"), delimiter=",")
-Y_test_A = np.loadtxt(open("datasets/Y_test_A.csv", "rb"), delimiter=",")
-Y_test_B = np.loadtxt(open("datasets/Y_test_B.csv", "rb"), delimiter=",")
-Y_test_C = np.loadtxt(open("datasets/Y_test_C.csv", "rb"), delimiter=",")
-Y_train_A = np.loadtxt(open("datasets/Y_train_A.csv", "rb"), delimiter=",")
-Y_train_B = np.loadtxt(open("datasets/Y_train_B.csv", "rb"), delimiter=",")
-Y_train_C = np.loadtxt(open("datasets/Y_train_C.csv", "rb"), delimiter=",")
+def calc_mse(pred, real):
+    return np.mean(np.square(pred-real))
 
-datasets = [[X_test_A,X_train_A,Y_test_A,Y_train_A],[X_test_B,X_train_B,Y_test_B,Y_train_B],[X_test_B,X_train_B,Y_test_B,Y_train_B]]
 
-for X_test, X_train, y_test, y_train in datasets:
+def split_dataset(x, y, i):
+    n = x.shape[0]//10
+    test_x = x[i*n:(i+1)*n]
+    train_x = np.vstack((x[:i*n],x[(i+1)*n:]))
+    test_y = y[i*n:(i+1)*n]
+    train_y = np.hstack((y[:i*n],y[(i+1)*n:]))
+    return train_x, test_x, train_y, test_y
+
+
+# plot the histogram
+def plot_data(unreg_coef,ridge_coef,lasso_coef):
+    num_bins = 50
+    plt.figure()
+    plt.hist(unreg_coef,alpha=0.5, label="Unregularized", bins=num_bins, color="blue")
+    plt.hist(ridge_coef,alpha=0.5, label="Ridge", bins=num_bins, color="red")
+    plt.hist(lasso_coef,alpha=0.5, label="Lasso", bins=num_bins, color="black")
+    plt.legend()
+    plt.title("Parameter Histograms")
+    plt.show()
+    
+
+def run_model(X_test, X_train, y_test, y_train):
     # linear (unregularized) regression
     unreg_model = linear_model.LinearRegression()
     unreg_model.fit(X_train, y_train)
     pred_lin = unreg_model.predict(X_test)
-    mse_lin = mean_squared_error(y_test, pred_lin)
+    mse_lin = calc_mse(y_test, pred_lin)
 
     # ridge
-    ridge_alphas = [0.0001,0.0005,0.001,0.005,0.01,0.05,0.1,0.5,1]
-    max_score = 0
     best_alpha = 0
-    for alpha in ridge_alphas:
-        ridge_model = linear_model.Ridge(alpha = alpha)
-        k_folds = KFold(n_splits=10)
-        scores = cross_val_score(ridge_model, X_train, y_train, cv=k_folds)
+    max_score = -1
+    # k-fold cross validation to find the best hyperparameter 
+    for alpha in range(0,1000):
+        if alpha==0:
+            continue
+        alpha = alpha/10.0
+        scores = []
+        for i in range(0,10):
+            train_x, test_x, train_y, test_y = split_dataset(X_train, y_train, i)
+            ridge_model = linear_model.Ridge(alpha = alpha)
+            ridge_model.fit(train_x, train_y)
+            y_pred = ridge_model.predict(test_x)
+            scores.append(calc_mse(y_pred, test_y))
         mean_score = np.mean(scores)
-        max_score = max(mean_score, max_score)
-        if max_score==mean_score:
+        if (max_score==-1 or max_score>mean_score):
+            max_score = mean_score 
             best_alpha = alpha
-    best_ridge_model = linear_model.Ridge(alpha = best_alpha)
-    best_ridge_model.fit(X_train, y_train)
-    pred_ridge = best_ridge_model.predict(X_test)
-    mse_ridge = mean_squared_error(y_test, pred_ridge)
+    ridge_model = linear_model.Ridge(alpha = best_alpha)
+    ridge_model.fit(X_train, y_train)
+    pred_ridge = ridge_model.predict(X_test)
+    mse_ridge = calc_mse(y_test, pred_ridge)
+    print("ridge hyperparameter: ", best_alpha)
 
     # lasso
-    lasso_alphas = [0.0001,0.0005,0.001,0.005,0.01,0.05,0.1,0.5,1]
-    max_score = 0
     best_alpha = 0
-    for alpha in lasso_alphas:
-        lasso_model = linear_model.Lasso(alpha = alpha)
-        k_folds = KFold(n_splits=10)
-        scores = cross_val_score(lasso_model, X_train, y_train, cv=k_folds)
+    max_score = -1
+    # k-fold cross validation to find the best hyperparameter
+    for alpha in range(0,500):
+        if alpha==0:
+            continue
+        alpha = alpha/100.0
+        scores = []
+        for i in range(0,10):
+            train_x, test_x, train_y, test_y = split_dataset(X_train, y_train, i)
+            lasso_model = linear_model.Lasso(alpha = alpha, tol=0.001)
+            lasso_model.fit(train_x, train_y)
+            y_pred = lasso_model.predict(test_x)
+            scores.append(calc_mse(y_pred, test_y))
         mean_score = np.mean(scores)
-        max_score = max(mean_score, max_score)
-        if max_score==mean_score:
+        if (max_score==-1 or max_score>mean_score):
+            max_score = mean_score 
             best_alpha = alpha
-    best_lasso_model = linear_model.Lasso(alpha = best_alpha)
-    best_lasso_model.fit(X_train, y_train)
-    pred_lasso = best_lasso_model.predict(X_test)
-    mse_lasso = mean_squared_error(y_test, pred_lasso)
+    lasso_model = linear_model.Lasso(alpha = best_alpha, tol=0.001)
+    lasso_model.fit(X_train, y_train)
+    pred_lasso = lasso_model.predict(X_test)
+    mse_lasso = calc_mse(y_test, pred_lasso)
+    print("lasso hyperparameter: ", best_alpha)
 
     # avg mean squared error
     print("Average mean squared error of each model:")
@@ -67,11 +91,5 @@ for X_test, X_train, y_test, y_train in datasets:
     print("Ridge regression model: ", mse_ridge)
     print("Lasso regression model: ", mse_lasso)
 
-    # histogram
-    plt.figure()
-    plt.hist(unreg_model.coef_,alpha=0.5, label="Unregularized", bins=20, color="blue")
-    plt.hist(best_ridge_model.coef_,alpha=0.5, label="Ridge", bins=20, color="red")
-    plt.hist(best_lasso_model.coef_,alpha=0.5, label="Lasso", bins=20, color="black")
-    plt.legend()
-    plt.title("Parameter Histograms")
-    plt.show()
+    plot_data(unreg_model.coef_,ridge_model.coef_,lasso_model.coef_)
+
